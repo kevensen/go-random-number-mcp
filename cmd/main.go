@@ -17,7 +17,7 @@ const (
 
 func main() {
 	listenAddr := flag.String("addr", "127.0.0.1", "Listen address")
-	listenPort := flag.Int("port", 8080, "Listen port")
+	listenPort := flag.Int("port", 6767, "Listen port")
 	flag.Parse()
 
 	mcpServer := random.NewMCPServer(serverName, serverVersion)
