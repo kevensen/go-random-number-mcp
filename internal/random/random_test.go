@@ -205,6 +205,9 @@ func TestNewMCPServerRegistersTool(t *testing.T) {
 	if _, ok := tools["random_ascii"]; !ok {
 		t.Fatalf("NewMCPServer() missing random_ascii tool")
 	}
+	if _, ok := tools["random_string"]; !ok {
+		t.Fatalf("NewMCPServer() missing random_string tool")
+	}
 }
 
 func TestRandomFloatHandler(t *testing.T) {
@@ -529,6 +532,91 @@ func TestRandomASCIIHandler(t *testing.T) {
 			}
 			if structured.Value != textContent.Text {
 				t.Fatalf("randomASCIIHandler() structured value != text value")
+			}
+		})
+	}
+}
+
+func TestRandomStringHandler(t *testing.T) {
+	testCases := []struct {
+		desc    string
+		request mcp.CallToolRequest
+		length  int
+		charset string
+		wantErr bool
+	}{
+		{
+			desc:    "invalid request with zero length",
+			request: mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]any{"length": 0, "charset": "abc"}}},
+			length:  0,
+			charset: "abc",
+			wantErr: true,
+		},
+		{
+			desc:    "invalid request with empty charset",
+			request: mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]any{"length": 4, "charset": ""}}},
+			length:  4,
+			charset: "",
+			wantErr: true,
+		},
+		{
+			desc:    "valid request with small charset",
+			request: mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]any{"length": 8, "charset": "abc"}}},
+			length:  8,
+			charset: "abc",
+		},
+		{
+			desc:    "valid request with unicode charset",
+			request: mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]any{"length": 5, "charset": "αβγ"}}},
+			length:  5,
+			charset: "αβγ",
+		},
+	}
+
+	ctx := t.Context()
+	for _, tc := range testCases {
+		t.Run(tc.desc, func(t *testing.T) {
+			result, err := randomStringHandler(ctx, tc.request)
+			if err != nil {
+				t.Fatalf("randomStringHandler() error = %v", err)
+			}
+			if result == nil || len(result.Content) == 0 {
+				t.Fatalf("randomStringHandler() result is nil or empty")
+			}
+			if tc.wantErr {
+				if !result.IsError {
+					t.Fatalf("randomStringHandler() expected error, got success")
+				}
+				return
+			}
+			if result.IsError {
+				t.Fatalf("randomStringHandler() returned error content: %+v", result.Content[0])
+			}
+
+			textContent, ok := result.Content[0].(mcp.TextContent)
+			if !ok {
+				t.Fatalf("randomStringHandler() content type = %T, want TextContent", result.Content[0])
+			}
+			if len([]rune(textContent.Text)) != tc.length {
+				t.Fatalf("randomStringHandler() text length = %d, want %d", len([]rune(textContent.Text)), tc.length)
+			}
+
+			charsetRunes := map[rune]struct{}{}
+			for _, r := range []rune(tc.charset) {
+				charsetRunes[r] = struct{}{}
+			}
+			for _, r := range []rune(textContent.Text) {
+				if _, ok := charsetRunes[r]; !ok {
+					t.Fatalf("randomStringHandler() rune %q not in charset", r)
+				}
+			}
+
+			structured, ok := result.StructuredContent.(randomStringResponse)
+			if !ok {
+				t.Fatalf("randomStringHandler() structured content type = %T, want randomStringResponse", result.StructuredContent)
+			}
+			if structured.Value != textContent.Text {
+				t.Fatalf("randomStringHandler() structured value != text value")
 			}
 		})
 	}

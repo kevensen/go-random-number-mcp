@@ -43,6 +43,15 @@ type randomASCIIArgs struct {
 	Length int `json:"length"`
 }
 
+type randomStringResponse struct {
+	Value string `json:"value"`
+}
+
+type randomStringArgs struct {
+	Length  int    `json:"length"`
+	Charset string `json:"charset"`
+}
+
 // NewMCPServer builds the MCP server with the random_int tool registered.
 func NewMCPServer(name, version string) *server.MCPServer {
 	mcpServer := server.NewMCPServer(
@@ -80,6 +89,16 @@ func NewMCPServer(name, version string) *server.MCPServer {
 	)
 
 	mcpServer.AddTool(stringTool, randomASCIIHandler)
+
+	charsetTool := mcp.NewTool(
+		"random_string",
+		mcp.WithDescription("Returns a cryptographically secure random string using a specific character set. Required arguments: length, charset."),
+		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithInputSchema[randomStringArgs](),
+		mcp.WithOutputSchema[randomStringResponse](),
+	)
+
+	mcpServer.AddTool(charsetTool, randomStringHandler)
 
 	return mcpServer
 }
@@ -235,6 +254,36 @@ func randomASCIIHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.
 	}, nil
 }
 
+func randomStringHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	var args randomStringArgs
+	if err := request.BindArguments(&args); err != nil {
+		return &mcp.CallToolResult{
+			IsError: true,
+			Content: []mcp.Content{
+				mcp.TextContent{Type: "text", Text: fmt.Sprintf("random_string failed: %v", err)},
+			},
+		}, nil
+	}
+
+	value, err := randomStringWithCharset(args.Length, args.Charset)
+	if err != nil {
+		return &mcp.CallToolResult{
+			IsError: true,
+			Content: []mcp.Content{
+				mcp.TextContent{Type: "text", Text: fmt.Sprintf("random_string failed: %v", err)},
+			},
+		}, nil
+	}
+
+	response := randomStringResponse{Value: value}
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			mcp.TextContent{Type: "text", Text: value},
+		},
+		StructuredContent: response,
+	}, nil
+}
+
 // randomInt64InRange returns a cryptographically secure random integer in the
 // inclusive range [min, max].
 func randomInt64InRange(min, max int64) (int64, error) {
@@ -321,6 +370,31 @@ func randomASCIIString(length int) (string, error) {
 			return "", err
 		}
 		builder.WriteByte(byte(asciiStart + value.Int64()))
+	}
+
+	return builder.String(), nil
+}
+
+// randomStringWithCharset returns a cryptographically secure random string using the provided charset.
+// Length must be greater than zero and charset must not be empty.
+func randomStringWithCharset(length int, charset string) (string, error) {
+	if length <= 0 {
+		return "", &ZeroLengthError{}
+	}
+
+	charsetRunes := []rune(charset)
+	if len(charsetRunes) == 0 {
+		return "", fmt.Errorf("charset must not be empty")
+	}
+
+	var builder strings.Builder
+	max := big.NewInt(int64(len(charsetRunes)))
+	for i := 0; i < length; i++ {
+		value, err := rand.Int(rand.Reader, max)
+		if err != nil {
+			return "", err
+		}
+		builder.WriteRune(charsetRunes[value.Int64()])
 	}
 
 	return builder.String(), nil
