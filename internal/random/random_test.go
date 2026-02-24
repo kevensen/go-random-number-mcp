@@ -202,6 +202,9 @@ func TestNewMCPServerRegistersTool(t *testing.T) {
 	if _, ok := tools["random_float"]; !ok {
 		t.Fatalf("NewMCPServer() missing random_float tool")
 	}
+	if _, ok := tools["random_ascii"]; !ok {
+		t.Fatalf("NewMCPServer() missing random_ascii tool")
+	}
 }
 
 func TestRandomFloatHandler(t *testing.T) {
@@ -450,6 +453,82 @@ func TestRandomFloatHandler(t *testing.T) {
 			}
 			if structured.Value != valueFromText {
 				t.Fatalf("randomFloatHandler() structured value %f != text value %f", structured.Value, valueFromText)
+			}
+		})
+	}
+}
+
+func TestRandomASCIIHandler(t *testing.T) {
+	testCases := []struct {
+		desc    string
+		request mcp.CallToolRequest
+		length  int
+		wantErr bool
+	}{
+		{
+			desc:    "invalid request with zero length",
+			request: mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]any{"length": 0}}},
+			length:  0,
+			wantErr: true,
+		},
+		{
+			desc:    "invalid request with negative length",
+			request: mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]any{"length": -1}}},
+			length:  -1,
+			wantErr: true,
+		},
+		{
+			desc:    "valid request with length 1",
+			request: mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]any{"length": 1}}},
+			length:  1,
+		},
+		{
+			desc:    "valid request with length 16",
+			request: mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]any{"length": 16}}},
+			length:  16,
+		},
+	}
+
+	ctx := t.Context()
+	for _, tc := range testCases {
+		t.Run(tc.desc, func(t *testing.T) {
+			result, err := randomASCIIHandler(ctx, tc.request)
+			if err != nil {
+				t.Fatalf("randomASCIIHandler() error = %v", err)
+			}
+			if result == nil || len(result.Content) == 0 {
+				t.Fatalf("randomASCIIHandler() result is nil or empty")
+			}
+			if tc.wantErr {
+				if !result.IsError {
+					t.Fatalf("randomASCIIHandler() expected error, got success")
+				}
+				return
+			}
+			if result.IsError {
+				t.Fatalf("randomASCIIHandler() returned error content: %+v", result.Content[0])
+			}
+
+			textContent, ok := result.Content[0].(mcp.TextContent)
+			if !ok {
+				t.Fatalf("randomASCIIHandler() content type = %T, want TextContent", result.Content[0])
+			}
+			if len(textContent.Text) != tc.length {
+				t.Fatalf("randomASCIIHandler() text length = %d, want %d", len(textContent.Text), tc.length)
+			}
+			for i := 0; i < len(textContent.Text); i++ {
+				b := textContent.Text[i]
+				if b < 32 || b > 126 {
+					t.Fatalf("randomASCIIHandler() non-printable ASCII at index %d: %d", i, b)
+				}
+			}
+
+			structured, ok := result.StructuredContent.(randomASCIIResponse)
+			if !ok {
+				t.Fatalf("randomASCIIHandler() structured content type = %T, want randomASCIIResponse", result.StructuredContent)
+			}
+			if structured.Value != textContent.Text {
+				t.Fatalf("randomASCIIHandler() structured value != text value")
 			}
 		})
 	}

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"math"
 	"math/big"
+	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -32,6 +33,14 @@ type randomFloatArgs struct {
 	Max        *float64 `json:"max,omitempty"`
 	IncludeMin *bool    `json:"includeMin,omitempty"`
 	IncludeMax *bool    `json:"includeMax,omitempty"`
+}
+
+type randomASCIIResponse struct {
+	Value string `json:"value"`
+}
+
+type randomASCIIArgs struct {
+	Length int `json:"length"`
 }
 
 // NewMCPServer builds the MCP server with the random_int tool registered.
@@ -61,6 +70,16 @@ func NewMCPServer(name, version string) *server.MCPServer {
 	)
 
 	mcpServer.AddTool(floatTool, randomFloatHandler)
+
+	stringTool := mcp.NewTool(
+		"random_ascii",
+		mcp.WithDescription("Returns a cryptographically secure random ASCII string. Required argument: length."),
+		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithInputSchema[randomASCIIArgs](),
+		mcp.WithOutputSchema[randomASCIIResponse](),
+	)
+
+	mcpServer.AddTool(stringTool, randomASCIIHandler)
 
 	return mcpServer
 }
@@ -186,6 +205,36 @@ func randomFloatHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.
 	}, nil
 }
 
+func randomASCIIHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	var args randomASCIIArgs
+	if err := request.BindArguments(&args); err != nil {
+		return &mcp.CallToolResult{
+			IsError: true,
+			Content: []mcp.Content{
+				mcp.TextContent{Type: "text", Text: fmt.Sprintf("random_ascii failed: %v", err)},
+			},
+		}, nil
+	}
+
+	value, err := randomASCIIString(args.Length)
+	if err != nil {
+		return &mcp.CallToolResult{
+			IsError: true,
+			Content: []mcp.Content{
+				mcp.TextContent{Type: "text", Text: fmt.Sprintf("random_ascii failed: %v", err)},
+			},
+		}, nil
+	}
+
+	response := randomASCIIResponse{Value: value}
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			mcp.TextContent{Type: "text", Text: value},
+		},
+		StructuredContent: response,
+	}, nil
+}
+
 // randomInt64InRange returns a cryptographically secure random integer in the
 // inclusive range [min, max].
 func randomInt64InRange(min, max int64) (int64, error) {
@@ -250,4 +299,29 @@ func cryptoRandFloat64() (float64, error) {
 		return 0, err
 	}
 	return float64(value.Int64()) / float64(maxUint53), nil
+}
+
+// randomASCIIString returns a cryptographically secure random string of printable ASCII characters.
+// Length must be greater than zero.
+func randomASCIIString(length int) (string, error) {
+	if length <= 0 {
+		return "", &ZeroLengthError{}
+	}
+
+	const asciiStart = 32
+	const asciiEnd = 126
+	const asciiRange = asciiEnd - asciiStart + 1
+
+	var builder strings.Builder
+	builder.Grow(length)
+	max := big.NewInt(asciiRange)
+	for i := 0; i < length; i++ {
+		value, err := rand.Int(rand.Reader, max)
+		if err != nil {
+			return "", err
+		}
+		builder.WriteByte(byte(asciiStart + value.Int64()))
+	}
+
+	return builder.String(), nil
 }
